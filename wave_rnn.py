@@ -43,11 +43,12 @@ def get_data(df, n_steps):
 def evaluate(model, X_train, X_test, df, n_steps, scaler):
     """
         inputs:
-            model,
-            X_train, X_test,
-            df,
-            n_steps,
-            scaler,
+            model, a trained keras rnn model to be evaluated
+            X_train, X_test, numpy arrays containing training 
+                and testing features
+            df, a pandas dataframe from which to extract target values
+            n_steps, the window size used for prediction
+            scaler, the sklearn scaler used to normalize the data
         outputs:
             none, simply prints the training and testing scores
     """
@@ -88,7 +89,7 @@ def main():
 
     # instantiate and compile model
     n_units = 25
-    n_epochs = 1
+    n_epochs = 10
     batch_size = 250
 
     rnn_model = keras.Sequential([
