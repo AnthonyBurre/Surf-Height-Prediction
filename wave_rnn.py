@@ -16,7 +16,7 @@ def get_data(df, n_steps):
                 and training data
             scaler, an sklearn MinMaxScaler used to normalize the data
     """
-    data = df.drop('Date/Time', axis = 1).to_numpy()
+    data = df.to_numpy()
 
     scaler = MinMaxScaler()
 
@@ -79,7 +79,7 @@ def evaluate(model, X_train, X_test, df, n_steps, scaler):
 def main():
 
     # read in csv and fill in missing values
-    df = pd.read_csv('Coastal Data System - Waves (Mooloolaba) 01-2017 to 06 - 2019.csv').iloc[2:]
+    df = pd.read_csv('Coastal Data System - Waves (Mooloolaba) 01-2017 to 06 - 2019.csv', index_col="Date/Time").iloc[2:]
     df = df.replace(-99.9,np.nan)
     df = df.interpolate()
 
