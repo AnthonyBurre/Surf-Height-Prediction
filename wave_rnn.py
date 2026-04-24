@@ -9,8 +9,8 @@ def get_data(df, n_steps):
     """
         inputs:
             df, a pandas dataframe containing features and target
-            n_steps, an int representing the number of previous days 
-                to use to predict each subsequent day
+            n_steps, an int representing the number of previous time steps 
+                to use to predict each subsequent one
         outputs:
             X_train, X_test, Y_train, numpy arrays containing testing 
                 and training data
@@ -25,7 +25,7 @@ def get_data(df, n_steps):
     n_features = data.shape[1]
     n_samples = len(data) - n_steps
 
-    # split data into X (windows with n_steps days each) and y (next day heights)
+    # split data into X (windows with n_steps each) and y (next step heights)
     X = np.zeros((n_samples, n_steps, n_features))
     y = np.zeros(n_samples)
 
