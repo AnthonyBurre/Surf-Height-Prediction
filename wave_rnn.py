@@ -5,14 +5,15 @@ from tensorflow import keras
 from sklearn.metrics import mean_squared_error
 import math
 
-def get_data(df, n_steps):
+def get_data(df, feature_window, forecast_horizon=1):
     """
         inputs:
             df, a pandas dataframe containing features and target
-            n_steps, an int representing the number of previous time steps 
+            feature_window, an int representing the number of previous timesteps
                 to use to predict each subsequent one
+            forecast_horizon, an int representing how many steps ahead to predict
         outputs:
-            X_train, X_test, Y_train, numpy arrays containing testing 
+            X_train, X_test, Y_train, numpy arrays containing testing
                 and training data
             scaler, an sklearn MinMaxScaler used to normalize the data
     """
@@ -23,15 +24,16 @@ def get_data(df, n_steps):
     data = scaler.fit_transform(data)
 
     n_features = data.shape[1]
-    n_samples = len(data) - n_steps
+    n_samples = len(data) - feature_window - forecast_horizon
+    print(f"total n_samples: {n_samples}")
 
-    # split data into X (windows with n_steps each) and y (next step heights)
-    X = np.zeros((n_samples, n_steps, n_features))
+    # split data into X (windows with feature_window each) and y (next forecast_horizon heights)
+    X = np.zeros((n_samples, feature_window, n_features))
     y = np.zeros(n_samples)
 
     for i in range(n_samples):
-        X[i] = data[i:i + n_steps]
-        y[i] = data[i + n_steps][0]
+        X[i] = data[i:i + feature_window]
+        y[i] = data[i + feature_window + forecast_horizon - 1][0]
 
     split_index = int(n_samples * 0.8)
 
@@ -40,15 +42,16 @@ def get_data(df, n_steps):
 
     return X_train, X_test, Y_train, scaler
 
-def evaluate(model, X_train, X_test, df, n_steps, scaler):
+def evaluate(model, X_train, X_test, df, feature_window, scaler, forecast_horizon=1):
     """
         inputs:
             model, a trained keras rnn model to be evaluated
-            X_train, X_test, numpy arrays containing training 
+            X_train, X_test, numpy arrays containing training
                 and testing features
             df, a pandas dataframe from which to extract target values
-            n_steps, the window size used for prediction
+            feature_window, the window size used for prediction
             scaler, the sklearn scaler used to normalize the data
+            forecast_horizon, how many steps ahead were predicted
         outputs:
             none, simply prints the training and testing scores
     """
@@ -65,9 +68,12 @@ def evaluate(model, X_train, X_test, df, n_steps, scaler):
     predicted_train = scaler.inverse_transform(a)
     predicted_test = scaler.inverse_transform(b)
 
-    # get original data values
-    y_train_raw = df['Hs'][n_steps:n_steps+X_train.shape[0]].values
-    y_test_raw = df['Hs'][n_steps+X_train.shape[0]:].values
+    n_train = X_train.shape[0]
+    n_test = X_test.shape[0]
+    train_targets = [i + feature_window + forecast_horizon - 1 for i in range(n_train)]
+    test_targets = [(n_train + i) + feature_window + forecast_horizon - 1 for i in range(n_test)]
+    y_train_raw = df['Hs'].iloc[train_targets].values
+    y_test_raw = df['Hs'].iloc[test_targets].values
 
     # calculate mean squared error
     trainScore = mean_squared_error(y_train_raw, predicted_train[:,0])
@@ -84,23 +90,24 @@ def main():
     df = df.interpolate()
 
     # split df into numpy arrays for testing and training
-    windowsize = 250
-    X_train, X_test, Y_train, scaler = get_data(df, windowsize)
+    windowsize = 96
+    forecast_horizon = 1
+    X_train, X_test, Y_train, scaler = get_data(df, windowsize, forecast_horizon)
 
     # instantiate and compile model
-    n_units = 25
-    n_epochs = 10
-    batch_size = 250
+    n_units = 50
+    n_epochs = 50
+    batch_size = 400
 
     rnn_model = keras.Sequential([
         keras.layers.LSTM(n_units),
         keras.layers.Dense(1)
-        ])
+    ])
 
     rnn_model.compile(
         loss='mean_squared_error',
         optimizer='adam'
-        )
+    )
 
     # fit model
     rnn_model.fit(
@@ -112,7 +119,7 @@ def main():
     )
 
     # test model
-    evaluate(rnn_model, X_train, X_test, df, windowsize, scaler)
+    evaluate(rnn_model, X_train, X_test, df, windowsize, scaler, forecast_horizon)
 
 if __name__ == '__main__':
     main()
