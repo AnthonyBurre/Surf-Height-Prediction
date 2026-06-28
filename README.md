@@ -80,7 +80,7 @@ The feature matrix is assembled in three layers, each a single call:
 Two no-model references frame every result in this project:
 
 - **Persistence** — predict ŷ(t+h) = y(t). Strong at short horizons because Mooloolaba's `hsig_m` is highly autocorrelated on the order of hours, so "looks like now" is hard to beat in the first half-day.
-- **Climatology hour** — predict the train-set mean of `hsig_m` conditioned on hour-of-day(t+h). Horizon-independent: it ignores `t` entirely, so its RMSE is flat at ~0.48 m across every horizon.
+- **Climatology hour** — predict the train-set mean of `hsig_m` conditioned on hour-of-day(t+h). Horizon-independent: it ignores `t` entirely, so its RMSE is flat at ~48 cm across every horizon.
 
 The two crossover between **h=12 and h=24** on the pinned 2023-01-01 → 2024-12-31 test window, so persistence wins for h≤12, climatology from h≥24 onward:
 
@@ -92,14 +92,14 @@ Three model families are compared head-to-head: **Ridge** (linear, robust-scaled
 
 ![Best model per family vs forecast horizon](notebooks/figures/horizon_sweep.png)
 
-| h | Best baseline RMSE (m) | Ridge (m) | HGB (m) | GRU (m) | Best skill vs baseline |
+| h | Best baseline RMSE (cm) | Ridge (cm) | HGB (cm) | GRU (cm) | Best skill vs baseline |
 |---|---|---|---|---|---|
-| 6h  | 0.291 (persistence) | 0.260 | **0.254** | 0.259 | +0.127 |
-| 12h | 0.400 (persistence) | **0.347** | 0.348 | 0.348 | +0.132 |
-| 24h | 0.479 (climatology) | 0.442 | 0.437 | **0.434** | +0.093 |
-| 36h | 0.479 (climatology) | **0.453** | 0.463 | 0.458 | +0.053 |
-| 48h | 0.479 (climatology) | **0.460** | 0.484 | 0.462 | +0.041 |
-| 72h | 0.479 (climatology) | 0.477 | 0.503 | **0.474** | +0.011 |
+| 6h  | 29.1 (persistence) | 26.0 | **25.4** | 25.9 | +12.7% |
+| 12h | 40.0 (persistence) | **34.7** | 34.8 | 34.8 | +13.2% |
+| 24h | 47.9 (climatology) | 44.2 | 43.7 | **43.4** | +9.3% |
+| 36h | 47.9 (climatology) | **45.3** | 46.3 | 45.8 | +5.3% |
+| 48h | 47.9 (climatology) | **46.0** | 48.4 | 46.2 | +4.1% |
+| 72h | 47.9 (climatology) | 47.7 | 50.3 | **47.4** | +1.1% |
 
 Three conclusions:
 
@@ -109,7 +109,7 @@ Three conclusions:
 
 - **HGB for the first few hours, Ridge from a day out.** HGB-on-residual is best at h=6, but the two are a tie through h=36, and from there HGB falls behind as its residual target loses the structure that makes it learnable.
 
-All three clear the no-model baseline comfortably at short range (skill ≈ +0.13 at h=6/12) and then decay toward it: by h=72 even the best model is barely 1% under flat climatology. To beat it at that horizon would require much more distant leading wave observations and/or a spectral wave model.
+All three clear the no-model baseline comfortably at short range (skill ≈ +13% at h=6/12) and then decay toward it: by h=72 even the best model is barely 1% under flat climatology. To beat it at that horizon would require much more distant leading wave observations and/or a spectral wave model.
 
 ### How much of this is signal? (test-window noise)
 
@@ -117,14 +117,14 @@ With only one fixed test window, a one-centimetre gap could be nothing more than
 
 Taking the shipped Ridge-on-primary model as representative (the band is set by the test window, not the model, so it's similar for all three), the **absolute** RMSE is pinned to roughly ±2 cm at short lead, widening to ±4 cm at long lead:
 
-| h | Ridge / primary RMSE (m) | 95% CI | resolution |
+| h | Ridge / primary RMSE (cm) | 95% CI (cm) | resolution |
 |---|---|---|---|
-| 6h  | 0.270 | 0.249–0.291 | ±2.1 cm |
-| 12h | 0.354 | 0.327–0.382 | ±2.8 cm |
-| 24h | 0.442 | 0.406–0.476 | ±3.5 cm |
-| 36h | 0.453 | 0.419–0.489 | ±3.5 cm |
-| 48h | 0.460 | 0.424–0.499 | ±3.7 cm |
-| 72h | 0.477 | 0.436–0.519 | ±4.1 cm |
+| 6h  | 27.0 | 24.9–29.1 | ±2.1 cm |
+| 12h | 35.4 | 32.7–38.2 | ±2.8 cm |
+| 24h | 44.2 | 40.6–47.6 | ±3.5 cm |
+| 36h | 45.3 | 41.9–48.9 | ±3.5 cm |
+| 48h | 46.0 | 42.4–49.9 | ±3.7 cm |
+| 72h | 47.7 | 43.6–51.9 | ±4.1 cm |
 
 Most gaps in the table above are smaller than that, so on absolute RMSE alone the families look tied. But every model is scored on the *same* storms, so the **paired** difference is resolved far more tightly than those overlapping bands suggest — and that is the right test for "is A actually better than B here?" Bootstrapping the paired RMSE difference (HGB − Ridge, primary buoy) shows what's real:
 
@@ -139,10 +139,10 @@ So the structural story survives a significance test — HGB for the first few h
 
 Each new year that passes can be scored as a true blind set against our best models. This way we evaluate them against brand new data that wasn't implicitly leaked through the train/test iterative process. Awaiting the QLD wind 2025 release expected September 2026.
 
-**Pre-committed candidates for 2025**:
+**Pre-committed candidates for 2025** — re-fit on 2015–2024, then scored on the held-out year:
 
-- TBD
-- TBD
+- **Ridge (α=1)** — primary-buoy engineered features only (lags, rolling stats, momentum; no neighbours or wind), mean-imputed and robust-scaled by the fitted `Preprocessor`. The shipped model; committed at h=24 and h=48.
+- **HGB-on-residual** — `HistGradientBoostingRegressor(max_iter=800, learning_rate=0.03, max_depth=6, min_samples_leaf=50, l2_regularization=1.0)` fit on the persistence residual `y(t+h) − y(t)` of the `tweed_mc` set: primary buoy + Tweed Heads buoy + Mountain Creek wind (native NaN handling, no scaling). The short-lead specialist; committed at h=12 — the one candidate that needs the 2025 wind file, hence the wait.
 
 Scoring a new year against these committed candidates is a re-fit of the same recipe on the same training data, not a load of a serialised model. The `Preprocessor` fitted alongside each model captures the drop list, imputer means, and scaler stats, so the held-out year sees the same transformation the model was trained against — including any schema drift (extra columns are dropped, missing required columns raise).
 
