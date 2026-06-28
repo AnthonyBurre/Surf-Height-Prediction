@@ -139,12 +139,12 @@ So the structural story survives a significance test — HGB for the first few h
 
 Each new year that passes can be scored as a true blind set against our best models. This way we evaluate them against brand new data that wasn't implicitly leaked through the train/test iterative process. Awaiting the QLD wind 2025 release expected September 2026.
 
-**Pre-committed candidates for 2025** — re-fit on 2015–2024, then scored on the held-out year:
+**Pre-committed candidates for 2025**:
 
-- **Ridge (α=1)** — primary-buoy engineered features only (lags, rolling stats, momentum; no neighbours or wind), mean-imputed and robust-scaled by the fitted `Preprocessor`. The shipped model; committed at h=24 and h=48.
-- **HGB-on-residual** — `HistGradientBoostingRegressor(max_iter=800, learning_rate=0.03, max_depth=6, min_samples_leaf=50, l2_regularization=1.0)` fit on the persistence residual `y(t+h) − y(t)` of the `tweed_mc` set: primary buoy + Tweed Heads buoy + Mountain Creek wind (native NaN handling, no scaling). The short-lead specialist; committed at h=12 — the one candidate that needs the 2025 wind file, hence the wait.
+- **Ridge (α=1)** — primary-buoy engineered features only (lags, rolling stats, momentum; no neighbours or wind), mean-imputed and robust-scaled by the fitted `Preprocessor`.
+- **HGB-on-residual** — `HistGradientBoostingRegressor(max_iter=800, learning_rate=0.03, max_depth=6, min_samples_leaf=50, l2_regularization=1.0)` fit on the persistence residual `y(t+h) − y(t)` of the `tweed_mc` set: primary buoy + Tweed Heads buoy + Mountain Creek wind (native NaN handling, no scaling).
 
-Scoring a new year against these committed candidates is a re-fit of the same recipe on the same training data, not a load of a serialised model. The `Preprocessor` fitted alongside each model captures the drop list, imputer means, and scaler stats, so the held-out year sees the same transformation the model was trained against — including any schema drift (extra columns are dropped, missing required columns raise).
+Scoring a new year against these committed candidates is a re-fit of the same recipe on the same training data, not a load of a serialised model.
 
 | Year | h | Model | RMSE (cm) | Skill |
 |------|---|-------|-----------|-------|
