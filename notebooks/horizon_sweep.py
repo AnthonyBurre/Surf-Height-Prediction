@@ -23,12 +23,13 @@ scores at any one horizon are directly comparable across combos. Persistence
 is computed per-horizon (it varies a lot — the autocorrelation collapses).
 
 Saves:
-  horizon_sweep.png — single panel: RMSE vs horizon for just the per-horizon
-                       winners. For each horizon we identify the (combo, arch)
-                       with the lowest RMSE; each distinct winning pair gets a
-                       full-trajectory line across all 6 horizons, with a star
-                       marking the horizon(s) it wins. Persistence is drawn as
-                       a black dashed reference line.
+  horizon_sweep.png — single panel: RMSE vs horizon, one line per model
+                       family (Ridge / HGB-on-residual / GRU). Each family is
+                       drawn at its lowest RMSE across the hand-picked source
+                       combos, against the better of the two no-model
+                       baselines (persistence ∪ climatology). The figure is
+                       deliberately reduced to these four lines — the headline
+                       comparison is family-vs-family, not combo-vs-combo.
   experiments.jsonl entries under names 'hsweep_<combo>_h<H>h_<model>' and
                        'hsweep_seq_<combo>_h<H>h_<arch>'.
 
@@ -440,192 +441,124 @@ def run_seq_cell(
 
 
 # ---------------------------------------------------------------------------
-# Plot — chart code lives in viz.results; this notebook just reshapes hsweep
-# rows from experiments.jsonl into the long-format DataFrame the viz helper
-# expects, and adds the persistence baseline row.
+# Plot — best model per family vs horizon. Reshapes the hsweep_/seqsweep_ rows
+# in experiments.jsonl down to one line per model family (Ridge / HGB / GRU),
+# each at its lowest RMSE across the hand-picked source combos, plus the better
+# of the two no-model baselines. Deliberately four lines: the headline
+# comparison is family-vs-family, not combo-vs-combo.
 # ---------------------------------------------------------------------------
 
 import re
 
-from viz.results import plot_horizon_winners
-
-_NAME_PAT_SEQ = re.compile(r"^hsweep_seq_(\w+)_h(\d+)h_(\w+)$")
-_NAME_PAT_LIN = re.compile(r"^hsweep_(\w+)_h(\d+)h_(\w+)$")
-_NAME_PAT_TWEED_SEQ = re.compile(r"^seqsweep_tweed_mc_(rnn|gru|lstm|tcn)_.*_h(\d+)h$")
-# recsweep_<family>_h<H>h — each family on its own ablation-recommended set.
-# Treated as combo="rec" so it lands in the same per-horizon winner search
-# as the hand-picked hsweep_ combos.
-_NAME_PAT_RECSWEEP = re.compile(r"^recsweep_(\w+)_h(\d+)h$")
-
-# Display-only relabel for the "baseline" combo. The combo name lived in code
-# and JSONL as "baseline" before non-model baselines (persistence, climatology)
-# were drawn on the same chart — without this map the legend reads
-# "baseline / hgb" alongside literal baseline lines, which is confusing.
-# Keeps the data-side name unchanged so existing log entries still match.
-_COMBO_DISPLAY = {
-    "baseline": "5b+3w",
-    "tweed_mc": "tweed_mc",
-    "solo": "solo",
-    "wide": "wide",
-    "rec": "rec",
+FAMILIES = ["ridge", "hgb", "gru"]
+_FAMILY_LABEL = {"ridge": "Ridge", "hgb": "HGB-on-residual", "gru": "GRU"}
+_FAMILY_STYLE = {
+    "ridge": {"color": "#1f77b4", "marker": "o"},
+    "hgb":   {"color": "#ff7f0e", "marker": "s"},
+    "gru":   {"color": "#2ca02c", "marker": "^"},
 }
 
+# ridge/hgb come from the linear hsweep; GRU on baseline/wide from the seq
+# hsweep; GRU on tweed_mc from its own hyperparameter sweep (many configs, so
+# reduced by lowest RMSE). Lasso/RNN/LSTM/TCN and the ablation "rec" combo are
+# intentionally left out of the headline chart.
+_PAT_LIN = re.compile(r"^hsweep_(\w+)_h(\d+)h_(ridge|hgb)$")
+_PAT_SEQ = re.compile(r"^hsweep_seq_(\w+)_h(\d+)h_(gru)$")
+_PAT_TWEED = re.compile(r"^seqsweep_tweed_mc_(gru)_.*_h(\d+)h$")
 
-def _combo_label(combo: str) -> str:
-    return _COMBO_DISPLAY.get(combo, combo)
+_COMBO_DISPLAY = {"baseline": "5b+3w", "tweed_mc": "tweed_mc",
+                  "solo": "solo", "wide": "wide"}
 
 
-def _runs_dataframe() -> pd.DataFrame:
-    """Long-format chart-candidate runs: one row per (combo, arch, horizon).
+def _family_best_per_horizon() -> pd.DataFrame:
+    """Lowest-RMSE run per (family, horizon) across the hand-picked combos.
 
-    Pulls every ``hsweep_*`` row plus every ``recsweep_*`` row from
-    ``experiments.jsonl``. ``hsweep_*`` rows carry a hand-picked combo name
-    in the run name (e.g. ``hsweep_solo_h12h_ridge``); ``recsweep_*`` rows
-    are tagged with the synthetic combo ``"rec"`` so each family on its
-    ablation-recommended station set lands alongside the hand-picked combos
-    in the per-horizon winner search.
-
-    Keeps only the most recent row per (combo, h, arch) so reruns naturally
-    supersede older entries. Returns columns: ``label``, ``horizon_h``,
-    ``RMSE``, plus ``combo`` / ``arch`` for debugging or further filtering.
+    ridge/hgb and the baseline/wide GRU have one config per combo, so the most
+    recent log row wins; the tweed_mc GRU is a config sweep, reduced by lowest
+    RMSE. Returns columns ``family``, ``horizon_h``, ``RMSE``, and the
+    ``combo`` that produced each per-family best (used by the prose to show
+    that wider feature sets only win at short lead).
     """
     rows: list[dict] = []
-
-    df_hsweep = fc.find_runs(name_prefix="hsweep_")
-    for _, r in df_hsweep.iterrows():
-        m = _NAME_PAT_SEQ.match(r["name"]) or _NAME_PAT_LIN.match(r["name"])
+    for _, r in fc.find_runs(name_prefix="hsweep_").iterrows():
+        m = _PAT_LIN.match(r["name"]) or _PAT_SEQ.match(r["name"])
         if not m:
             continue
-        combo, h, arch = m.group(1), int(m.group(2)), m.group(3)
-        rows.append({
-            "combo": combo, "arch": arch, "horizon_h": h,
-            "label": f"{_combo_label(combo)} / {arch}" if arch != "persistence" else "persistence",
-            "RMSE": r["metrics"]["RMSE"],
-            "ts": r["timestamp"],
-        })
+        rows.append({"family": m.group(3), "horizon_h": int(m.group(2)),
+                     "combo": m.group(1), "RMSE": r["metrics"]["RMSE"],
+                     "ts": r["timestamp"]})
+    df = (pd.DataFrame(rows)
+            .sort_values("ts")
+            .drop_duplicates(["family", "horizon_h", "combo"], keep="last")
+            .drop(columns="ts"))
 
-    df_rec = fc.find_runs(name_prefix="recsweep_")
-    for _, r in df_rec.iterrows():
-        m = _NAME_PAT_RECSWEEP.match(r["name"])
+    tweed: list[dict] = []
+    for _, r in fc.find_runs(name_prefix="seqsweep_tweed_mc_").iterrows():
+        m = _PAT_TWEED.match(r["name"])
         if not m:
             continue
-        family, h = m.group(1), int(m.group(2))
-        rows.append({
-            "combo": "rec", "arch": family, "horizon_h": h,
-            "label": f"{_combo_label('rec')} / {family}",
-            "RMSE": r["metrics"]["RMSE"],
-            "ts": r["timestamp"],
-        })
+        tweed.append({"family": m.group(1), "horizon_h": int(m.group(2)),
+                      "combo": "tweed_mc", "RMSE": r["metrics"]["RMSE"]})
+    if tweed:
+        tw = (pd.DataFrame(tweed)
+                .sort_values("RMSE")
+                .drop_duplicates(["family", "horizon_h", "combo"], keep="first"))
+        df = pd.concat([df, tw], ignore_index=True)
 
-    out = (
-        pd.DataFrame(rows)
-        .sort_values("ts")
-        .drop_duplicates(["combo", "horizon_h", "arch"], keep="last")
-        .drop(columns=["ts"])
-        .reset_index(drop=True)
-    )
-    return out
+    return (df.sort_values("RMSE")
+              .drop_duplicates(["family", "horizon_h"], keep="first")
+              .reset_index(drop=True))
 
 
-def _tweed_mc_seq_rows() -> pd.DataFrame:
-    """Best-config-per-(arch, horizon) rows from the tweed_mc seq sweep.
+def _baseline_envelope(horizons: list[int]) -> pd.DataFrame:
+    """Better-of-persistence/climatology RMSE per horizon (the no-model floor).
 
-    Pulls every ``seqsweep_tweed_mc_*`` entry, groups by (arch, horizon),
-    keeps the lowest-RMSE config per group, and emits long-format rows
-    labelled ``tweed_mc / <arch>`` so they slot into the chart alongside
-    the linear ``hsweep_`` and seq ``hsweep_seq_`` rows.
-    """
-    df = fc.find_runs(name_prefix="seqsweep_tweed_mc_")
-    rows: list[dict] = []
-    for _, r in df.iterrows():
-        m = _NAME_PAT_TWEED_SEQ.match(r["name"])
-        if not m:
-            continue
-        rows.append({
-            "arch": m.group(1), "horizon_h": int(m.group(2)),
-            "RMSE": r["metrics"]["RMSE"],
-        })
-    if not rows:
-        return pd.DataFrame(columns=["combo", "arch", "horizon_h", "label", "RMSE"])
-    best = (
-        pd.DataFrame(rows)
-        .sort_values("RMSE")
-        .drop_duplicates(["arch", "horizon_h"], keep="first")
-    )
-    best["combo"] = "tweed_mc"
-    best["label"] = _combo_label("tweed_mc") + " / " + best["arch"]
-    return best[["combo", "arch", "horizon_h", "label", "RMSE"]].reset_index(drop=True)
-
-
-def _climatology_rows(horizons: list[int]) -> pd.DataFrame:
-    """Compute ClimatologyHour RMSE per horizon on the pinned test window.
-
-    Cheap (Mooloolaba-only, no model fit) so we recompute on every plot
-    call rather than relying on log entries that may have drifted. Returns
-    rows in the same long format as ``_runs_dataframe`` so they can be
-    concatenated directly.
+    Mooloolaba-only and cheap, so recomputed on every plot. Persistence wins
+    at short lead; climatology takes over from ~24h on.
     """
     wave_full = fc.restrict_to_years(fc.load_data(buoy="mooloolaba"), None, 2024)
     rows = []
     for h in horizons:
-        rmse = compute_baselines(wave_full, h)["climatology_hour"]["RMSE"]
-        rows.append({"combo": None, "arch": "climatology_hour", "horizon_h": h,
-                     "label": "climatology hour", "RMSE": float(rmse)})
+        b = compute_baselines(wave_full, h)
+        p, c = b["persistence"]["RMSE"], b["climatology_hour"]["RMSE"]
+        rows.append({"horizon_h": h, "RMSE": float(min(p, c)),
+                     "source": "persistence" if p < c else "climatology"})
     return pd.DataFrame(rows)
 
 
-def save_horizon_winners_chart(runs: pd.DataFrame) -> None:
-    """Render the per-horizon-winners chart to ``figures/horizon_sweep.png``.
+def save_horizon_chart() -> None:
+    """Render the best-model-per-family chart to ``figures/horizon_sweep.png``."""
+    best = _family_best_per_horizon()
+    horizons = sorted(best["horizon_h"].unique())
+    env = _baseline_envelope(horizons)
 
-    Single RMSE-vs-horizon panel focused on the architecture × dataset
-    story: for each horizon the lowest-RMSE (non-ensemble) model wins,
-    every distinct winner gets its full trajectory across all horizons,
-    and stars mark its winning horizon(s). The two no-model baselines
-    (persistence + climatology-hour) are collapsed via viz's
-    ``collapse_baselines`` and drawn as a faint gray backdrop — the
-    crossover narrative lives in the README, not the chart.
-    """
-    horizons = sorted(runs["horizon_h"].unique())
-
-    # Drop ensembles — they muddy the per-model comparison; the user wants
-    # to see which individual model wins at each horizon.
-    runs = runs[runs["arch"] != "ensemble"].copy()
-    # Append tweed_mc seq best-config-per-arch + climatology baseline rows.
-    runs = pd.concat(
-        [runs, _tweed_mc_seq_rows(), _climatology_rows(horizons)],
-        ignore_index=True,
-    )
-
-    print("\n=== Per-horizon winners (ensembles excluded) ===")
-    contenders = runs[~runs["label"].isin(["persistence", "climatology hour"])]
+    print("\n=== Best model per family per horizon (rec combo excluded) ===")
     for h in horizons:
-        sub = contenders[contenders["horizon_h"] == h]
-        if sub.empty:
-            continue
-        win = sub.loc[sub["RMSE"].idxmin()]
-        print(f"  h={h:>3}h  {win['combo']:>10}/{win['arch']:<10}  RMSE {win['RMSE']:.4f}")
-
-    # Baselines collapsed to one backdrop line — light gray, thinner, no
-    # marker — so the eye lands on the model trajectories first.
-    baseline_style = {
-        "persistence":      {"linestyle": "--", "color": "#999999",
-                             "alpha": 0.45, "linewidth": 1.2, "marker": ""},
-        "climatology hour": {"linestyle": "--", "color": "#999999",
-                             "alpha": 0.45, "linewidth": 1.2, "marker": ""},
-    }
-    title = (
-        "Mooloolaba significant wave height — best model per forecast horizon\n"
-        "pinned 2023-01-01 → 2024-12-31 test window  ·  ★ marks the lowest-RMSE model at each horizon"
-    )
+        cells = []
+        for fam in FAMILIES:
+            row = best[(best["family"] == fam) & (best["horizon_h"] == h)]
+            if not row.empty:
+                combo = _COMBO_DISPLAY.get(row["combo"].iloc[0], row["combo"].iloc[0])
+                cells.append(f"{_FAMILY_LABEL[fam]} {row['RMSE'].iloc[0]:.4f} ({combo})")
+        print(f"  h={h:>3}h  " + "   ".join(cells))
 
     fig, ax = plt.subplots(figsize=(11, 6.5))
-    plot_horizon_winners(
-        runs, horizon_col="horizon_h", metric_col="RMSE", label_col="label",
-        baseline_label=baseline_style, collapse_baselines=True,
-        title=title, ax=ax,
-    )
+    for fam in FAMILIES:
+        sub = best[best["family"] == fam].sort_values("horizon_h")
+        ax.plot(sub["horizon_h"], sub["RMSE"], linewidth=1.8, markersize=8,
+                label=_FAMILY_LABEL[fam], **_FAMILY_STYLE[fam])
+    ax.plot(env["horizon_h"], env["RMSE"], color="#555555", linestyle="--",
+            linewidth=1.4, marker="", label="best no-model baseline")
     ax.set_xlabel("Forecast horizon (hours)")
     ax.set_ylabel("RMSE (m)")
+    ax.set_xticks(horizons)
+    ax.set_title(
+        "Mooloolaba significant wave height — best model per family vs horizon\n"
+        "pinned 2023-01-01 → 2024-12-31 test window",
+        fontsize=11,
+    )
+    ax.legend(loc="best", frameon=True)
+    ax.grid(True, alpha=0.3)
     fig.tight_layout()
     out = FIG_DIR / "horizon_sweep.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
@@ -710,12 +643,12 @@ def main() -> None:
         print(f"  h={h:>3}h  " + "  ".join(f"{r}" for r in rmses))
         print(f"   skill  " + "  ".join(f"{s}" for s in skills))
 
-    save_horizon_winners_chart(_runs_dataframe())
+    save_horizon_chart()
 
 
 if __name__ == "__main__":
     if "--plot-only" in sys.argv:
         # Replot from experiments.jsonl without re-running the 90-min sweep.
-        save_horizon_winners_chart(_runs_dataframe())
+        save_horizon_chart()
     else:
         main()

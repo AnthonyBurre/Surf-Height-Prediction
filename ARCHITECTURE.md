@@ -23,8 +23,7 @@ Surf-Height-Prediction-2/
 │   │   ├── baselines.py        # Forecaster protocol (the fit/predict contract) + Persistence, ClimatologyHour forecasters
 │   │   ├── neural.py           # SimpleRNN / GRU / LSTM / TCN forecasters + auto_device (PyTorch, lazy-imported)
 │   │   ├── scoring.py          # metrics (mae/rmse/bias/skill_score/summarise) + evaluate/compare harness + EvaluationResult
-│   │   ├── runlog.py           # experiments.jsonl: log_run/evaluate_and_log/read_log (store) · find_runs/best_run/latest_* (query) · wind_tag/compose_run_name (naming)
-│   │   └── ablation.py         # recommended_set — the ablation keep-if-helps-or-hurts selection rule (the sweep itself uses core load_all_sources + build_design)
+│   │   └── runlog.py           # experiments.jsonl: log_run/evaluate_and_log/read_log (store) · find_runs/best_run/latest_* (query) · wind_tag/compose_run_name (naming)
 │   ├── viz/                    # plotting package — split by pipeline stage
 │   │   ├── timeseries.py       # SHARED:           plot_series, plot_multi_source, autocorrelation_curve
 │   │   ├── eda.py              # POST-DOWNLOAD:    feature × horizon, cross-source heatmaps
