@@ -1,38 +1,33 @@
 # Surf Height Prediction 2
 
-An exercise in predictive modeling, this project is all about forecasting significant wave height (`hsig_m`) as measured by the Mooloolaba wave buoy off the sunny coast in Queensland, Australia.
-
-
-## Objective
-
-Given observations up to time *t* (30-minute cadence), predict `hsig_m` at *t + 6h, 12h, 24h, 36h, 48h, 72h*.
-
-Evaluation uses a chronological 80/20 split with a pinned 2023-01-01 → 2024-12-31 test window. The headline metric is RMSE in meters and compared against two non-model predictive  baselines (persistence and  climatology).
+An exercise in predictive modeling, this project is all about forecasting wave height off the sunny coast in Queensland, Australia. I chose to revisit this subject to see if I could beat [my previous model](https://github.com/AnthonyBurre/Surf-Height-Prediction) performance, but found that the data source had revised some of its measurements, yeilding a much rougher dataset and making direct model performance comparison unhelpful. Even so, this expansion was an enjoyable learning experience.
 
 ## Data source
 
 All data in this project comes from the [Queensland Government open data portal](https://www.data.qld.gov.au/organization/environment-tourism-science-and-innovation), which provides us with several wind and wave monitoring stations in the region. Since all raw records are AEST we don't have to worry about time changes, and every output unified CSV carries a gap-free Brisbane `datetime` index.
 
-### Upstream revisions
+### Upstream revisions note
 
-The QLD portal publishes these as *derived, delayed-mode* wave parameters, and it periodically re-derives and republishes whole yearly resource files. Comparing an October 2025 snapshot against a re-download confirmed this: of ~178k shared timestamps, **26.9% changed**, with a clear signature rather than random drift. No revision notice is published, so the behaviour is documented here.
+The QLD portal publishes these as derived, delayed-mode wave parameters, and it periodically re-derives and republishes whole yearly resource files. Comparing an October 2025 snapshot against a re-download confirmed this: of ~178k shared timestamps, **26.9% changed**, with a clear signature rather than random drift, but no revision notice published.
 
-- **Whole records are recomputed, not just `hsig_m`.** `hmax_m`, `tz_s`, `tp_s`, and `peak_dir_deg` all change on the same ~27% of rows (`sst_c` on ~26%) — the buoy spectra were reprocessed, not patched.
-- **The change is symmetric.** New values are higher 50.3% / lower 49.7% of the time (mean Δ ≈ 0, -0.011 m) and the maximum is unchanged (5.204 m), so it is not a clipping, units, or one-sided shift — but magnitudes are large (median |Δ| = 0.42 m).
-- **Revisions are temporally clustered, not periodic.** They form 195 contiguous blocks (median ~5 days, max 18), never scattered single points, with no time-of-day pattern.
-- **They concentrate in big seas.** Waves >3 m were revised 40% of the time (mean |Δ| 0.63 m) vs ~25% / 0.11 m for 0.5-1.5 m waves, and the largest blocks all fall in the Dec–Mar storm/cyclone season (e.g. 2025-01-27→02-15, 2023-12-01→12-11).
-- **Three years are untouched.** 2017, 2018, and 2021 are byte-identical; 2015/16/19/20/22/23/24/25 were republished.
+- `hmax_m`, `tz_s`, `tp_s`, and `peak_dir_deg` *all* change on the same ~27% of rows (`sst_c` on ~26%).
+- New values are higher 50.3% / lower 49.7% of the time (mean Δ ≈ 0, -0.011 m) and the maximum is unchanged (5.204 m), so it is not a clipping, units, or one-sided shift.
+- Magnitudes are large (median |Δ| = 0.42 m).
+- They form 195 contiguous blocks (median ~5 days, max 18), never scattered single points, with no time-of-day pattern.
+- The largest blocks all fall in the Dec–Mar storm/cyclone season (e.g. 2025-01-27→02-15, 2023-12-01→12-11).
+- Waves >3 m were revised 40% of the time (mean |Δ| 0.63 m) vs ~25% / 0.11 m for 0.5-1.5 m waves.
+- 2017, 2018, and 2021 are untouched; 2015/16/19/20/22/23/24/25 were republished.
 
 The net effect is that the revised data is rougher:
 - 12h autocorrelation dropped 0.85 → 0.74
 - persistence RMSE rose from 26.5 cm on the old snapshot to ~40 cm now.
 
-I assume the revision is a data-quality improvement (more accurate storm-period measurements), not a regression — but it means **absolute RMSE is not comparable across snapshots**, while skill-vs-persistence is largely preserved. `test_persistence_baseline_matches_documented_values` pins the current baseline so a future revision is caught rather than silently shifting the headline numbers.
+I assume the revision is a data-quality improvement (more accurate storm-period measurements), but it means absolute RMSE is not comparable across snapshots or against my old project on a smaller and older subset of this data.
 
 
 ### Wave buoy network
 
-30-minute cadence. Mooloolaba is the prediction target; Brisbane, Caloundra, Gold Coast, North Moreton Bay, Palm Beach, Tweed Heads, and Wide Bay feed in as neighbour-buoy features where their histories overlap. Missing or erroneous readings (`-99.9` in the raw files) are replaced with `NaN`.
+30-minute cadence. Mooloolaba is the prediction target; Brisbane, Caloundra, Gold Coast, North Moreton Bay, Palm Beach, Tweed Heads, and Wide Bay feed in as neighbour-buoy features where their histories overlap.
 
 | Column | Description |
 |--------|-------------|
@@ -47,7 +42,7 @@ I assume the revision is a data-quality improvement (more accurate storm-period 
 
 ### Wind (air-quality monitoring network)
 
-Hourly cadence, 10 m ultrasonic wind sensors on the QLD air-quality monitoring stations. Mountain Creek pairs with the Mooloolaba buoy, Deception Bay sits ~50 km south on Moreton Bay, Lytton is at the mouth of the Brisbane River (paired with the Brisbane buoy), and Southport sits on the Gold Coast (paired with the Gold Coast / Palm Beach buoys). Pollutant and temperature fields are dropped at clean time, leaving:
+Hourly cadence (reindexed onto the 30-minute wave grid by forward-fill), 10 m ultrasonic wind sensors on the QLD air-quality monitoring stations. Mountain Creek pairs with the Mooloolaba buoy, Deception Bay sits ~50 km south on Moreton Bay, Lytton is at the mouth of the Brisbane River, and Southport sits on the Gold Coast.
 
 | Column | Description |
 |--------|-------------|
@@ -56,13 +51,10 @@ Hourly cadence, 10 m ultrasonic wind sensors on the QLD air-quality monitoring s
 | `wind_sigma_theta_deg` | Wind direction standard deviation (degrees) |
 | `wind_speed_std_ms` | Wind speed standard deviation (meters/second) |
 
-The wind frame is reindexed onto the 30-minute wave grid by forward-fill.
-
 ![Wind coverage](notebooks/figures/wind_coverage.png)
 
-### Dataset selection: length vs breadth
+> The coverage grids define the breadth-vs-depth trade for any experiment: how far back to train, and how many neighbour sources to include. Palm Beach (deployed 2017), Southport wind (mid-2018), and Wide Bay (2019, the only buoy upstream of northerly swells) only appear later.
 
-The coverage grids define the trade space for any experiment. The choice is a breadth-vs-depth call across two axes — how far back to train, and how many neighbour sources to include. Palm Beach (deployed 2017), Southport wind (mid-2018), and Wide Bay (2019, the only buoy upstream of northerly swells) only appear later.
 
 ## Data preparation
 
@@ -90,24 +82,13 @@ Two no-model references frame every result in this project:
 - **Persistence** — predict ŷ(t+h) = y(t). Strong at short horizons because Mooloolaba's `hsig_m` is highly autocorrelated on the order of hours, so "looks like now" is hard to beat in the first half-day.
 - **Climatology hour** — predict the train-set mean of `hsig_m` conditioned on hour-of-day(t+h). Horizon-independent: it ignores `t` entirely, so its RMSE is flat at ~0.48 m across every horizon.
 
-The two crossover between **h=12 and h=24** on the pinned 2023-01-01 → 2024-12-31 test window — persistence wins for h≤12, climatology from h≥24 onward:
-
-| h | Persistence RMSE (m) | Climatology hour RMSE (m) | Better |
-|---|---|---|---|
-| 6h  | 0.291 | 0.479 | persistence |
-| 12h | 0.400 | 0.479 | persistence |
-| 24h | 0.529 | 0.479 | **climatology** |
-| 36h | 0.562 | 0.479 | climatology |
-| 48h | 0.574 | 0.479 | climatology |
-| 72h | 0.624 | 0.479 | climatology |
-
-Residual diagnostics at the crossover horizon (h=24) show *why* climatology is the harder reference past this point — persistence error is roughly symmetric noise (it just doesn't know what wave height looks like a day out) while climatology has a tighter core but a left-skewed tail, systematically under-predicting the biggest swells.
+The two crossover between **h=12 and h=24** on the pinned 2023-01-01 → 2024-12-31 test window, so persistence wins for h≤12, climatology from h≥24 onward:
 
 ![Baseline residuals at h=24](notebooks/figures/baseline_residuals.png)
 
 ## Feature ablation
 
-Before tuning hyperparameters it's worth knowing *which* wind and wave stations are actually paying their way at each horizon, per model family. `notebooks/feature_ablation.py` answers that with two complementary measurements:
+Before tuning hyperparameters it's worth knowing which wind and wave stations are actually paying their way at each horizon, per model family. `notebooks/feature_ablation.py` answers that with two complementary measurements:
 
 - **Add-one** — start from the primary buoy alone (the "baseline" run) and add a single station; measure RMSE delta. Captures the marginal value of a station in the absence of the others.
 - **Drop-one** — start from every station available (the "ceiling" run) and remove a single station; measure RMSE delta. Captures the marginal cost when other context is already present.
@@ -194,33 +175,6 @@ Numbers behind the chart:
 The combo shorthand: `solo` = primary buoy only; `tweed_mc` = primary + Tweed Heads + Mountain Creek wind; `5b+3w` = primary + 5 wave neighbours + 3 wind stations; `wide` = primary + 7 neighbours + 4 wind stations on the shorter 2019-2024 window; `rec` = each family fit on its own ablation-recommended station set (see *Feature ablation*).
 
 Bold rows are picks newly added by the recommended-set search (`notebooks/recommended_sweep.py`). They displace the prior winners at h=6 (ensemble) and h=12 (both single and ensemble) and tie at h=48 (ensemble). At h=24/36/72 the prior `tweed_mc` / `solo` / `5b+3w` picks still win because they trained on the longer 2015-2024 window; the recommended-set search is locked to the ablation's 2019-2024 fixed window.
-
-### Linear models (h=12 deep dive)
-
-Nine configs were swept through `notebooks/linear_playground.py`, all at h=12 — the original prediction target before the horizon sweep. The cross-horizon view is the chart above; this section drills into how source breadth and regularisation interact when persistence is still the harder reference. All scored on the same pinned test window (2023-01-01 → 2024-12-31 AEST) so RMSE is directly comparable. Each config runs Ridge (α=1), Lasso (α=0.001), HGB-on-residuals (`max_iter=800`, `lr=0.03`, `depth=6`), and a nanmean ensemble of the three. Persistence on the shared window is **RMSE 0.3996 m** (39.96 cm).
-
-| Config | Window | Sources | Feats | Best member | Ensemble RMSE (m) | Skill vs persistence |
-|---|---|---|---|---|---|---|
-| **v2 wide** | 2019–2024 | 7 buoys + 4 wind | 406 | Lasso 0.3481 | **0.3436** | **+0.2610** |
-| v6 ridgehi (α=10 / α=5e-4) | 2015–2024 | 5 buoys + 3 wind | 328 | HGB 0.3470 | 0.3439 | +0.2598 |
-| v1 baseline | 2015–2024 | 5 buoys + 3 wind | 328 | HGB 0.3470 | 0.3441 | +0.2590 |
-| v9 tweed + mc-wind | 2015–2024 | tweed-heads + mountain-creek wind | 172 | HGB 0.3470 | 0.3446 | +0.2567 |
-| v3 no-wind | 2015–2024 | 5 buoys, no wind | 172 | HGB 0.3477 | 0.3446 | +0.2566 |
-| v5 dense lags | 2015–2024 | 5 buoys + 3 wind | 433 | HGB 0.3488 | 0.3452 | +0.2542 |
-| v7 HGB-heavy alone | 2015–2024 | 5 buoys + 3 wind | 328 | HGB 0.3469 | — | +0.2460 |
-| v8 mc-wind only | 2015–2024 | mooloolaba + mountain-creek wind | 159 | HGB 0.3500 | 0.3475 | +0.2443 |
-| v4 solo (no neighbours, no wind) | 2015–2024 | mooloolaba only | 107 | HGB 0.3527 | 0.3490 | +0.2379 |
-
-The headline takeaway is that **every reasonable config lands inside a ~5 mm RMSE band** (0.3436–0.3490) — the model family, regularisation strength, and feature grid all matter less than which external sources are in the feature matrix. Concretely:
-
-- **One upstream buoy carries almost all the neighbour signal.** v9 (Tweed Heads + Mountain Creek wind, 1 buoy + 1 wind) hits ensemble RMSE 0.3446 — bit-for-bit tied with v3 (5 buoys, no wind, also 0.3446) and within 1 mm of v1 (5 buoys + 3 wind, 0.3441). Tweed Heads is ~100 km south of Mooloolaba and sees southerly swells first; once you have it, Brisbane / Caloundra / Gold Coast / North Moreton Bay add nothing measurable.
-- **The source ladder is steep then flat.** Mooloolaba alone (v4) 0.3490 → add Mountain Creek wind (v8) 0.3475 (−1.5 mm) → add Tweed Heads buoy (v9) 0.3446 (−2.9 mm) → add 4 more neighbour buoys + 2 more wind stations (v1) 0.3441 (−0.5 mm). The first two sources beyond the primary buoy do almost all the work.
-- **Wide window helps the ensemble, marginally.** v2 (2019-2024, 7 buoys + 4 wind) edges out v1 by 0.5 mm, despite halving the training set — the two extra neighbour buoys (Palm Beach, Wide Bay) and Southport wind compensate.
-- **The default feature grid is already near-optimal.** v5 doubles the lag/rolling/momentum density and gets *worse* by 1.1 mm — the marginal columns are noise the linear models then have to regularise away.
-- **The ensemble is the right shipping artefact.** Every config's ensemble beats every individual member in it, even though the members are highly correlated. With three near-equally-good models there's no Bayesian-averaging dilemma: the nanmean costs nothing and shaves another 0.3–0.5 cm.
-- **HGB-on-residuals is the strongest single model**, modestly ahead of Ridge and Lasso across configs. Direct-target HGB (run separately in v7-style trials) is consistently worse, which matches the priors — letting persistence handle the level and giving HGB only the delta is a meaningfully easier learning problem.
-
-For full per-model rows including MAE and bias, see `experiments.jsonl` (filter on `name` starting with `lineopt_v`).
 
 ## Real world performance
 
