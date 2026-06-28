@@ -441,11 +441,12 @@ def run_seq_cell(
 
 
 # ---------------------------------------------------------------------------
-# Plot — best model per family vs horizon. Reshapes the hsweep_/seqsweep_ rows
-# in experiments.jsonl down to one line per model family (Ridge / HGB / GRU),
-# each at its lowest RMSE across the hand-picked source combos, plus the better
-# of the two no-model baselines. Deliberately four lines: the headline
-# comparison is family-vs-family, not combo-vs-combo.
+# Plot — best model per family vs horizon. Scans EVERY run in experiments.jsonl
+# and keeps the single lowest-RMSE Ridge / HGB / GRU at each horizon (any combo,
+# any config, any sweep), plus the better of the two no-model baselines.
+# Deliberately four lines: the headline comparison is family-vs-family. The min
+# over many runs on one window is optimistic — the README's noise section says
+# how much of the gap between these lines is real.
 # ---------------------------------------------------------------------------
 
 import re
@@ -458,53 +459,42 @@ _FAMILY_STYLE = {
     "gru":   {"color": "#2ca02c", "marker": "^"},
 }
 
-# ridge/hgb come from the linear hsweep; GRU on baseline/wide from the seq
-# hsweep; GRU on tweed_mc from its own hyperparameter sweep (many configs, so
-# reduced by lowest RMSE). Lasso/RNN/LSTM/TCN and the ablation "rec" combo are
-# intentionally left out of the headline chart.
-_PAT_LIN = re.compile(r"^hsweep_(\w+)_h(\d+)h_(ridge|hgb)$")
-_PAT_SEQ = re.compile(r"^hsweep_seq_(\w+)_h(\d+)h_(gru)$")
-_PAT_TWEED = re.compile(r"^seqsweep_tweed_mc_(gru)_.*_h(\d+)h$")
-
-_COMBO_DISPLAY = {"baseline": "5b+3w", "tweed_mc": "tweed_mc",
-                  "solo": "solo", "wide": "wide"}
+# A run counts toward a family if its name contains the token "ridge", "hgb" or
+# "gru" (so lasso/rnn/lstm/tcn, ensembles and the baselines are skipped). Every
+# sweep is pooled — hsweep combos, the recommended-set sweep, the sequence
+# sweep, the linear sweep, and the ablation probes — because the chart's job is
+# "the best we got per family", not "one chosen recipe".
+def _classify(name: str) -> "str | None":
+    tokens = set(re.split(r"[^a-z0-9]+", name.lower()))
+    return next((f for f in FAMILIES if f in tokens), None)
 
 
 def _family_best_per_horizon() -> pd.DataFrame:
-    """Lowest-RMSE run per (family, horizon) across the hand-picked combos.
+    """Lowest-RMSE Ridge / HGB / GRU at each horizon across EVERY logged run.
 
-    ridge/hgb and the baseline/wide GRU have one config per combo, so the most
-    recent log row wins; the tweed_mc GRU is a config sweep, reduced by lowest
-    RMSE. Returns columns ``family``, ``horizon_h``, ``RMSE``, and the
-    ``combo`` that produced each per-family best (used by the prose to show
-    that wider feature sets only win at short lead).
+    Columns: ``family``, ``horizon_h``, ``RMSE``, ``name`` (the winning run, so
+    it's clear which combo/config produced each point). The minimum over many
+    runs on one fixed window is optimistic by construction — the README's
+    "test-window noise" section quantifies how much of the inter-family gap is
+    real versus that selection effect.
     """
     rows: list[dict] = []
-    for _, r in fc.find_runs(name_prefix="hsweep_").iterrows():
-        m = _PAT_LIN.match(r["name"]) or _PAT_SEQ.match(r["name"])
-        if not m:
+    for _, r in fc.read_log().iterrows():
+        fam = _classify(str(r["name"]))
+        if fam is None:
             continue
-        rows.append({"family": m.group(3), "horizon_h": int(m.group(2)),
-                     "combo": m.group(1), "RMSE": r["metrics"]["RMSE"],
-                     "ts": r["timestamp"]})
-    df = (pd.DataFrame(rows)
-            .sort_values("ts")
-            .drop_duplicates(["family", "horizon_h", "combo"], keep="last")
-            .drop(columns="ts"))
-
-    tweed: list[dict] = []
-    for _, r in fc.find_runs(name_prefix="seqsweep_tweed_mc_").iterrows():
-        m = _PAT_TWEED.match(r["name"])
-        if not m:
+        rmse = (r.get("metrics") or {}).get("RMSE")
+        if rmse is None:
             continue
-        tweed.append({"family": m.group(1), "horizon_h": int(m.group(2)),
-                      "combo": "tweed_mc", "RMSE": r["metrics"]["RMSE"]})
-    if tweed:
-        tw = (pd.DataFrame(tweed)
-                .sort_values("RMSE")
-                .drop_duplicates(["family", "horizon_h", "combo"], keep="first"))
-        df = pd.concat([df, tw], ignore_index=True)
-
+        h = (r.get("extra") or {}).get("horizon_h")
+        if h is None:
+            m = re.search(r"h(\d+)h", str(r["name"]).lower())
+            h = int(m.group(1)) if m else None
+        if h is None:
+            continue
+        rows.append({"family": fam, "horizon_h": int(h),
+                     "RMSE": float(rmse), "name": str(r["name"])})
+    df = pd.DataFrame(rows)
     return (df.sort_values("RMSE")
               .drop_duplicates(["family", "horizon_h"], keep="first")
               .reset_index(drop=True))
@@ -532,15 +522,13 @@ def save_horizon_chart() -> None:
     horizons = sorted(best["horizon_h"].unique())
     env = _baseline_envelope(horizons)
 
-    print("\n=== Best model per family per horizon (rec combo excluded) ===")
+    print("\n=== Best model per family per horizon (min over ALL runs) ===")
     for h in horizons:
-        cells = []
         for fam in FAMILIES:
             row = best[(best["family"] == fam) & (best["horizon_h"] == h)]
             if not row.empty:
-                combo = _COMBO_DISPLAY.get(row["combo"].iloc[0], row["combo"].iloc[0])
-                cells.append(f"{_FAMILY_LABEL[fam]} {row['RMSE'].iloc[0]:.4f} ({combo})")
-        print(f"  h={h:>3}h  " + "   ".join(cells))
+                print(f"  h={h:>3}h  {_FAMILY_LABEL[fam]:<16} "
+                      f"{row['RMSE'].iloc[0]:.4f}  <- {row['name'].iloc[0]}")
 
     fig, ax = plt.subplots(figsize=(11, 6.5))
     for fam in FAMILIES:

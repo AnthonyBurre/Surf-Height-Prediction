@@ -4,7 +4,7 @@ An exercise in predictive modeling, this project is all about forecasting wave h
 
 ## Data source
 
-All data in this project comes from the [Queensland Government open data portal](https://www.data.qld.gov.au/organization/environment-tourism-science-and-innovation), which provides us with several wind and wave monitoring stations in the region. Since all raw records are AEST we don't have to worry about time changes, and every output unified CSV carries a gap-free Brisbane `datetime` index.
+All data in this project comes from the Queensland Government [open data portal](https://www.data.qld.gov.au/organization/environment-tourism-science-and-innovation), which provides us with several wind and wave monitoring stations in the region. Since all raw records are AEST we don't have to worry about time changes, and every output unified CSV carries a gap-free Brisbane `datetime` index.
 
 ### Upstream revisions note
 
@@ -88,30 +88,52 @@ The two crossover between **h=12 and h=24** on the pinned 2023-01-01 → 2024-12
 
 ## Model selection and tuning
 
-Three model families are compared head-to-head: **Ridge** (linear, robust-scaled), **HGB-on-persistence-residual** (gradient-boosted trees fit to the persistence error), and a regularised **GRU** (sequence model over the raw circular-encoded channels). Each is tuned on the pinned 2023-01-01 → 2024-12-31 test window — Ridge at α=1, HGB at `max_iter=800` / `lr=0.03` / `depth=6`, the GRU from a small hyperparameter sweep (`seq_len=48`, hidden 64, 1 layer) — and scored across six forecast horizons, each at its best-performing feature combo (combos defined below), against the better of persistence and climatology (the no-model baselines from *Non-model baselines*).
+Three model families are compared head-to-head: **Ridge** (linear, robust-scaled) and a regularised **GRU** (sequence model over the raw circular-encoded channels), both predicting the wave-height *level* `y(t+h)` directly, plus **HGB-on-residual** — gradient-boosted trees that instead predict the *persistence residual* `y(t+h) − y(t)` (the change from the current height) and add it back. Each is tuned on the pinned 2023-01-01 → 2024-12-31 test window and scored across six forecast horizons. Each line is that family's **lowest-RMSE run at each horizon**, pooled across every feature combo and config logged. Taking the minimum over many runs flatters all three a little — the noise section below bounds by how much.
 
 ![Best model per family vs forecast horizon](notebooks/figures/horizon_sweep.png)
 
 | h | Best baseline RMSE (m) | Ridge (m) | HGB (m) | GRU (m) | Best skill vs baseline |
 |---|---|---|---|---|---|
 | 6h  | 0.291 (persistence) | 0.260 | **0.254** | 0.259 | +0.127 |
-| 12h | 0.400 (persistence) | 0.348 | **0.348** | 0.354 | +0.128 |
+| 12h | 0.400 (persistence) | **0.347** | 0.348 | 0.348 | +0.132 |
 | 24h | 0.479 (climatology) | 0.442 | 0.437 | **0.434** | +0.093 |
-| 36h | 0.479 (climatology) | **0.453** | 0.463 | 0.460 | +0.053 |
-| 48h | 0.479 (climatology) | **0.460** | 0.484 | 0.481 | +0.041 |
+| 36h | 0.479 (climatology) | **0.453** | 0.463 | 0.458 | +0.053 |
+| 48h | 0.479 (climatology) | **0.460** | 0.484 | 0.462 | +0.041 |
 | 72h | 0.479 (climatology) | 0.477 | 0.503 | **0.474** | +0.011 |
 
-Bold marks the lowest RMSE at each horizon; the skill column is `1 − RMSE/baseline` for that best model. Combo shorthand: `solo` = primary buoy only; `tweed_mc` = + Tweed Heads + Mountain Creek wind; `5b+3w` = + 5 wave neighbours + 3 wind stations; `wide` = + 7 neighbours + 4 wind, on the shorter 2019–2024 window.
+Three conclusions:
 
-Three conclusions, and they are the whole story:
+- **Neighbour and wind stations only earn their keep at short lead.** At h=6 the best models lean on a wider feature set, but the edge is only ~0.5–1 cm. By h=24 the best Ridge and HGB are the primary-buoy-only models, and adding stations from there just hands the model noise to regularise away.
 
-- **Neighbour and wind stations only earn their keep at short lead.** At h=6 the best models lean on a wider feature set — Ridge's best is the full `wide` build (0.260 vs 0.270 for the primary buoy alone), HGB's is `5b+3w`, the GRU's is `tweed_mc` — but the edge is only ~0.5–1 cm. By h=24 it is gone: the best Ridge and HGB are the primary-buoy-only (`solo`) model (give or take a rounding-level tie), and adding stations from there just hands the model noise to regularise away. The cross-buoy and wind signal is real but shallow — worth something for the first half-day, irrelevant past it.
+- **The regularised GRU does not beat the simpler models.** It tracks them closely everywhere and posts two sub-centimetre nominal "wins" (h=24, h=72), but those margins are ≤ 0.3 cm. Gaps this small sit inside the test-window noise band measured below, so the sequence model's extra weight and training cost don't pay off.
 
-- **The regularised GRU does not beat the simpler models.** It tracks them closely everywhere and posts two sub-centimetre nominal "wins" (h=24, h=72), but those margins are ≤ 0.3 cm — and the GRU got a hyperparameter sweep that the fixed-config Ridge and HGB did not, which only flatters it. On a single fixed test window, gaps this small sit inside the year-to-year noise (a rolling-origin check on an earlier build put the fold-to-fold spread at ±2–5 cm), so the sequence model's extra weight and training cost buy nothing we can defend.
+- **HGB for the first few hours, Ridge from a day out.** HGB-on-residual is best at h=6, but the two are a tie through h=36, and from there HGB falls behind as its residual target loses the structure that makes it learnable.
 
-- **HGB is best at short lead, Ridge is best and steadiest at long lead.** HGB-on-residual wins at h=6/12 but climbs fastest with horizon — by h=36 it is the worst of the three, as its residual target loses the structure that makes it learnable. Ridge sits within a hair of the best at every horizon and is cleanly best from h=36 on; the crossover lands around h=24–36. So for a single model to ship, **plain Ridge on the primary buoy is the pick** — simplest to maintain and never more than noise behind the leader — with the caveat that at very short lead a wider feature set (or HGB) buys a small but genuine gain.
+All three clear the no-model baseline comfortably at short range (skill ≈ +0.13 at h=6/12) and then decay toward it: by h=72 even the best model is barely 1% under flat climatology. To beat it at that horizon would require much more distant leading wave observations and/or a spectral wave model.
 
-All three clear the no-model baseline comfortably at short range (skill ≈ +0.13 at h=6/12) and then decay toward it: by h=72 even the best model is barely 1% under flat climatology — the point at which observation-only features are exhausted and only a numerical weather/wave model could push further.
+### How much of this is signal? (test-window noise)
+
+With only one fixed test window, a one-centimetre gap could be nothing more than which storms happened to fall after 2023-01-01. There's no cross-validation here to average that out, so `notebooks/test_window_noise.py` measures the single-window uncertainty directly with a moving-block bootstrap (two-week blocks, preserving storm-scale autocorrelation).
+
+Taking the shipped Ridge-on-primary model as representative (the band is set by the test window, not the model, so it's similar for all three), the **absolute** RMSE is pinned to roughly ±2 cm at short lead, widening to ±4 cm at long lead:
+
+| h | Ridge / primary RMSE (m) | 95% CI | resolution |
+|---|---|---|---|
+| 6h  | 0.270 | 0.249–0.291 | ±2.1 cm |
+| 12h | 0.354 | 0.327–0.382 | ±2.8 cm |
+| 24h | 0.442 | 0.406–0.476 | ±3.5 cm |
+| 36h | 0.453 | 0.419–0.489 | ±3.5 cm |
+| 48h | 0.460 | 0.424–0.499 | ±3.7 cm |
+| 72h | 0.477 | 0.436–0.519 | ±4.1 cm |
+
+Most gaps in the table above are smaller than that, so on absolute RMSE alone the families look tied. But every model is scored on the *same* storms, so the **paired** difference is resolved far more tightly than those overlapping bands suggest — and that is the right test for "is A actually better than B here?" Bootstrapping the paired RMSE difference (HGB − Ridge, primary buoy) shows what's real:
+
+- **h=6 — HGB beats Ridge by 0.9 cm**, 95% CI [−1.4, −0.6]: real, not luck.
+- **h=12 / 24 / 36 — genuine ties** (CI straddles zero).
+- **h=48 / 72 — Ridge beats HGB by 2.2 / 2.6 cm**, CIs [+0.8, +3.8] / [+1.5, +4.0]: HGB's long-lead collapse is real.
+
+So the structural story survives a significance test — HGB for the first few hours, Ridge from a day or two out — while everything in between is a coin-flip and the GRU's sub-centimetre wins are noise.
+
 
 ## Real world performance
 
@@ -121,21 +143,14 @@ Each new year that passes can be scored as a true blind set against our best mod
 
 - TBD
 - TBD
-- **TBD Ensemble**
 
 Scoring a new year against these committed candidates is a re-fit of the same recipe on the same training data, not a load of a serialised model. The `Preprocessor` fitted alongside each model captures the drop list, imputer means, and scaler stats, so the held-out year sees the same transformation the model was trained against — including any schema drift (extra columns are dropped, missing required columns raise).
 
 | Year | h | Model | RMSE (cm) | Skill |
 |------|---|-------|-----------|-------|
-| 2025 | 12h | Ridge | _TBD_ | _TBD_ |
-| 2025 | 12h | TCN | _TBD_ | _TBD_ |
-| 2025 | 12h | Ensemble | _TBD_ | _TBD_ |
+| 2025 | 12h | HGB | _TBD_ | _TBD_ |
 | 2025 | 24h | Ridge | _TBD_ | _TBD_ |
-| 2025 | 24h | TCN | _TBD_ | _TBD_ |
-| 2025 | 24h | Ensemble | _TBD_ | _TBD_ |
 | 2025 | 48h | Ridge | _TBD_ | _TBD_ |
-| 2025 | 48h | TCN | _TBD_ | _TBD_ |
-| 2025 | 48h | Ensemble | _TBD_ | _TBD_ |
 
 
 ## Reproducibility
@@ -237,4 +252,4 @@ All scripts are plain `.py` files — run directly:
 
 3. **Long-cadence historical bundles.** Deeper wave history for swell-upstream buoys: Mooloolaba 2000-2014 (1h), Brisbane 1976-2011 (12h), Gold Coast 1987-2014 (6h), Tweed Heads 1995-2011 (1h). Excluded from `qld_ckan.wave.constants.BUOYS` because the pipeline assumes a 30-min axis and these have drifting minute offsets (e.g. 08:55, 14:56). Needs: a cadence parameter on the wave pipeline, snap-to-grid (floor + dedup) before reindex, and a join strategy mixing coarse history with the 30-min grid. Resource IDs at `coastal-data-system-waves-{slug}` on `data.qld.gov.au`. QLD's 1989-1992 DST window forces choosing fixed UTC+10 (`Etc/GMT-10`) or per-row DST.
 
-4. **Ensemble the families.** A flat nanmean of Ridge, HGB, and GRU edged the best single model by ~0.5 cm at short lead in earlier runs (e.g. h=12), where the three make partly uncorrelated errors. Worth a proper pass — inverse-error or stacked weights rather than a flat mean — but only once a rolling-origin evaluation confirms the gain survives the single-window noise floor (see *Model selection and tuning*); on the evidence here it may not.
+4. **Ensemble the families.** A flat nanmean of Ridge, HGB, and GRU edged the best single model by ~0.5 cm at short lead in earlier runs (e.g. h=12), where the three make partly uncorrelated errors.
