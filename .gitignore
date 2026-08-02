@@ -1,2 +1,21 @@
-*.csv
 .venv/
+data/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+src/*.egg-info/
+build/
+dist/
+
+# Notebooks
+.ipynb_checkpoints/
+*/figures/*
+
+# macOS
+.DS_Store
+
+# Claude Code (per-user, not shared)
+.claude/settings.local.json
