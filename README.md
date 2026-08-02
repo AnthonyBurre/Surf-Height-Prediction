@@ -1,6 +1,8 @@
-# Surf Height Prediction 2
+# Surf Height Prediction
 
-An exercise in predictive modeling, this project is all about forecasting wave height off the sunny coast in Queensland, Australia. I chose to revisit this subject to see if I could beat [my previous model](https://github.com/AnthonyBurre/Surf-Height-Prediction) performance, but found that the data source had revised some of its measurements, yeilding a much rougher dataset and making direct model performance comparison unhelpful. Even so, this expansion was an enjoyable learning experience.
+An exercise in predictive modeling, this project is all about forecasting wave height off the sunny coast in Queensland, Australia. I chose to revisit this subject to see if I could beat [my previous model](legacy/) performance, but found that the data source had revised some of its measurements, yeilding a much rougher dataset and making direct model performance comparison unhelpful. Even so, this expansion was an enjoyable learning experience.
+
+> **Previous version.** The original project from AMLI summer 2019 is archived unchanged under [`legacy/`](legacy/). Its RMSE figures predate the upstream data revision described below and aren't comparable to the results here.
 
 ## Data source
 
