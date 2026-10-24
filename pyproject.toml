@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-forecast = ["torch>=2.11,<2.12"]
+forecast = ["torch>=2.11,<2.14"]
 viz = [
     "matplotlib>=3.10",
     "seaborn>=0.13",
