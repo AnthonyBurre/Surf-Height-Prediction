@@ -24,6 +24,7 @@ STATIONS: dict[str, dict[int, str]] = {
         2022: "aa1441e2-3ef6-4690-acf3-6111932810e1",
         2023: "474d80f7-f859-4d9f-8e20-f39c3fdf0800",
         2024: "f0199e4f-a10a-4f7a-9fb0-f1eedef674ad",
+        2025: "72e96032-d304-49b7-917d-5e9dd984fe17",
     },
     "deception-bay": {
         # Same pre-2015 schema variants as mountain-creek (see rename map).
@@ -42,6 +43,7 @@ STATIONS: dict[str, dict[int, str]] = {
         2022: "29603390-0a47-40dd-b4b8-97137cabcd3c",
         2023: "a2d5dd4b-6e2a-410e-919c-3e589c8367bf",
         2024: "533fb7e9-2238-4e3b-82d0-96162d975366",
+        2025: "06fcd97b-120d-45f5-bc23-fe297b020e2e",
     },
     "southport": {
         # Gold Coast coastal station; pairs with the gold-coast and palm-beach
@@ -53,6 +55,7 @@ STATIONS: dict[str, dict[int, str]] = {
         2022: "2986eca8-8d12-4f6e-8c7e-e4f4796aaccf",
         2023: "a2866895-f7cb-4f2a-be0f-b5a82eea3672",
         2024: "f46541c1-4083-46f4-aea5-14ad745580b4",
+        2025: "2d578c46-b005-45a8-94d7-a6bea999681b",
     },
     "lytton": {
         # At the mouth of the Brisbane River, due east of Brisbane CBD; pairs
@@ -70,6 +73,7 @@ STATIONS: dict[str, dict[int, str]] = {
         2022: "994cd1f1-72ae-42c2-b5df-46660d3c9ce6",
         2023: "7bbda45f-6dfe-440f-8af9-718feea7e8fb",
         2024: "0b90eccd-bce5-4da6-8c7a-49fb8267cd06",
+        2025: "dc9c042c-fb38-4c30-8a67-348ed2bc8786",
     },
 }
 

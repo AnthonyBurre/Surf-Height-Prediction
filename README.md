@@ -139,20 +139,27 @@ So the structural story survives a significance test — HGB for the first few h
 
 ## Real world performance
 
-Each new year that passes can be scored as a true blind set against our best models. This way we evaluate them against brand new data that wasn't implicitly leaked through the train/test iterative process. Awaiting the QLD wind 2025 release expected September 2026.
+Each new year that passes can be scored as a true blind set against our best models. This way we evaluate them against brand new data that wasn't implicitly leaked through the train/test iterative process.
 
 **Pre-committed candidates for 2025**:
 
 - **Ridge (α=1)** — primary-buoy engineered features only (lags, rolling stats, momentum; no neighbours or wind), mean-imputed and robust-scaled by the fitted `Preprocessor`.
 - **HGB-on-residual** — `HistGradientBoostingRegressor(max_iter=800, learning_rate=0.03, max_depth=6, min_samples_leaf=50, l2_regularization=1.0)` fit on the persistence residual `y(t+h) − y(t)` of the `tweed_mc` set: primary buoy + Tweed Heads buoy + Mountain Creek wind (native NaN handling, no scaling).
 
-Scoring a new year against these committed candidates is a re-fit of the same recipe on the same training data, not a load of a serialised model.
+Scoring a new year against these committed candidates is a re-fit of the same recipe on the same training data (2015–2022), not a load of a serialised model. `notebooks/heldout_2025.py` does this, first re-scoring the original 2023–24 window from the fresh download to confirm the snapshot hasn't been revised underneath the logged numbers (November 2026 snapshot: all six reproduce to <0.01 cm).
 
-| Year | h | Model | RMSE (cm) | Skill |
-|------|---|-------|-----------|-------|
-| 2025 | 12h | HGB | _TBD_ | _TBD_ |
-| 2025 | 24h | Ridge | _TBD_ | _TBD_ |
-| 2025 | 48h | Ridge | _TBD_ | _TBD_ |
+| Year | h | Model | RMSE (cm) | 95% CI (cm) | Best baseline (cm) | Skill | 2023–24 skill |
+|------|---|-------|-----------|-------------|--------------------|-------|---------------|
+| 2025 | 12h | HGB   | 40.5 | 34.9–45.9 | 48.1 (persistence) | +15.8% | +12.9% |
+| 2025 | 24h | Ridge | 52.9 | 45.6–60.0 | 55.2 (climatology) | +4.2%  | +7.8%  |
+| 2025 | 48h | Ridge | 53.7 | 47.5–59.6 | 55.2 (climatology) | +2.9%  | +4.1%  |
+
+Skill is RMSE reduction against the better of persistence and hour-of-day climatology, as in the horizon table above.
+
+2025 was a rougher year than the 2023–24 test window (99th-percentile Hs 3.1 m vs 2.7 m, peak 4.3 m vs 3.6 m, with a heavy February–May), so absolute RMSE is up 6–9 cm for every model *and* every baseline. Relative to the baselines the picture holds:
+
+- **12h HGB generalises.** It beats persistence by 7.6 cm, paired 95% CI [−9.5, −5.7], and its skill is higher than on the original test window.
+- **24h / 48h Ridge still beats climatology, but not decisively.** The paired gap to climatology is −2.3 cm [−6.1, +1.4] at 24h and −1.6 cm [−4.5, +1.0] at 48h. Both CIs straddle zero, so one year can't distinguish them. Against persistence the 24h and 48h models stay far ahead (+33% / +41% MSE skill).
 
 
 ## Reproducibility
@@ -189,7 +196,7 @@ Generate `data/` with these commands (one CSV per source):
 # Wave - default Mooloolaba 2015-2025
 ./.venv/bin/python -m qld_ckan wave [--buoy brisbane|caloundra|gold-coast|north-moreton-bay|palm-beach|tweed-heads|wide-bay]
 
-# Wind - default Mountain Creek 2010-2024
+# Wind - default Mountain Creek 2010-2025
 ./.venv/bin/python -m qld_ckan wind [--station deception-bay|lytton|southport]
 ```
 
